@@ -24,13 +24,21 @@ Field names below are verified against the
   you're in a linked worktree. Colour stays reserved for decisions. (PR status
   and session name were tried and dropped — both duplicate native Claude Code
   UI; see *Explicitly not doing*.)
+- Plan-aware `$`: the session-cost figure shows only on pay-go (API/Console). On
+  a Pro/Max subscription — detected by `rate_limits` being present — dollars are
+  a phantom pay-go estimate, so they're hidden and the quota segments carry
+  "spend" instead.
+- Session quota-burn: `5h:14% +8%` — how much of the 5h window *this* session has
+  eaten, from a `session_id`-keyed baseline cached in tmp; re-baselines on a
+  window reset or rollover. The Max-plan answer to "what did this cost," and not
+  native (`/usage` only shows the window total).
 
 ## Tier 1 — headline differentiators
 
-These need a small per-render state cache (append `pct,timestamp` to
-`$TMPDIR/cc-sl-$session_id`). That's the step up from the current stateless
-design — and it's where the uniqueness lives, because almost no status line
-shows *trajectory* or *time-to-compact*.
+The `session_id` state cache now exists — session quota-burn keys a 5h baseline
+off `$TMPDIR/cc-sl-$session_id.json`. These extend it to a short `pct,timestamp`
+history, which is where the uniqueness lives: almost no status line shows
+*trajectory* or *time-to-compact*.
 
 - **Predictive auto-compact ETA** — `ctx:72% ≈4 msgs`. Project messages until
   compaction from the context growth rate.
@@ -41,7 +49,6 @@ shows *trajectory* or *time-to-compact*.
 
 - **Binding-limit highlight** — when both 5h and weekly are shown, emphasise
   whichever is the tighter ceiling.
-- **Cost burn rate** — `$1.34 ($6/hr)` from `total_cost_usd / total_duration_ms`.
 - **Absolute tokens free** — optionally surface `Nk` remaining from
   `context_window_size − total_input_tokens`. Dropped from the default render as
   redundant with the `ctx:%` figure; revisit only if the raw count earns its width.
@@ -63,6 +70,11 @@ Casualties of this rule:
 - `session_name` — already shown in the banner above the chat.
 - `pr.*` — the docs say the payload "mirrors the PR badge in the bottom status
   bar," so rendering it here just double-prints the native footer badge.
+
+**Burn rate in dollars** — `total_cost_usd` is a pay-go *estimate*; on a
+subscription (flat fee) it's a phantom, so a `$/hr` figure misleads exactly the
+users who have `rate_limits`. Replaced by session quota-burn, denominated in the
+thing that's actually finite on a plan.
 
 `vim.mode`, `output_style.name`, `thinking.enabled`, `agent.name` — real fields,
 but clutter that dilutes the signal. Add only on demand.

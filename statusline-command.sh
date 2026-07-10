@@ -3,7 +3,7 @@
 # from stdin, resolves the git branch in-process (no second spawn, no shell
 # git line), and renders everything native from the JSON.
 exec node -e '
-const cp=require("child_process");
+const cp=require("child_process"),fs=require("fs"),os=require("os"),path=require("path");
 let d="";
 process.stdin.on("data",c=>d+=c);
 process.stdin.on("end",()=>{
@@ -48,9 +48,14 @@ process.stdin.on("end",()=>{
   const add=p?.cost?.total_lines_added||0, del=p?.cost?.total_lines_removed||0;
   if(add||del) parts.push(c("+"+add,"0;32")+"/"+c("-"+del,"0;31"));
 
-  // session cost native
+  // session cost — only meaningful on pay-go (API/Console). On a Pro/Max
+  // subscription you pay a flat fee, so total_cost_usd is a phantom pay-go
+  // estimate ("may differ from your actual bill"). rate_limits only ships to
+  // subscribers, so its presence is the tell: hide the dollar figure there and
+  // let the quota segments carry "spend" instead.
+  const onSub=p?.rate_limits!=null;
   const cost=p?.cost?.total_cost_usd||0;
-  if(cost>0) parts.push(c("$"+cost.toFixed(2),"0;32"));
+  if(cost>0 && !onSub) parts.push(c("$"+cost.toFixed(2),"0;32"));
 
   // bar with optional pacing marker
   const bar=(pct,pace,w=8)=>{
@@ -101,17 +106,39 @@ process.stdin.on("end",()=>{
   };
   const pace=(ts,win)=>{ if(!ts)return null; const f=(now-(ts-win))/win; return Math.max(0,Math.min(100,f*100)); };
 
-  // rate limit segment (Pro/Max only; each window may be independently absent)
-  const limit=(rl,label,win)=>{
+  // session quota-burn — how much of the 5h window THIS session has eaten; the
+  // Max-plan answer to "what did this cost" (dollars are a phantom on a flat-fee
+  // plan). Δ = current used% minus a per-session baseline cached in tmp, keyed
+  // by session_id. Re-baselined when the window resets (resets_at moves) or when
+  // usage drops below the baseline (window rolled). Not native — /usage shows
+  // the window total, never per-session attribution. Only rides the 5h window
+  // (a single session rarely moves the 7d figure enough to be worth the width).
+  const sid=p?.session_id;
+  const burn=rl=>{
+    if(!sid||!rl||rl.used_percentage==null) return null;
+    const cur=rl.used_percentage, reset=rl.resets_at||0;
+    const f=path.join(os.tmpdir(),"cc-sl-"+sid+".json");
+    let st={}; try{st=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
+    const prev=st.h5;
+    const base=(!prev||cur<prev.base||reset>prev.reset)?cur:prev.base;
+    st.h5={base,reset};
+    try{fs.writeFileSync(f,JSON.stringify(st))}catch{}
+    return Math.max(0,cur-base);
+  };
+
+  // rate limit segment (Pro/Max only; each window may be independently absent).
+  // Optional session-burn delta (cyan) rides on the 5h window.
+  const limit=(rl,label,win,d)=>{
     if(!rl||rl.used_percentage==null)return;
     const u=Math.floor(rl.used_percentage);
     const pc=pace(rl.resets_at,win);
     let s=c(label+":"+u+"%",bcol(u,pc))+bar(u,pc);
+    if(d!=null&&d>=1) s+=c(" +"+Math.round(d)+"%","0;36");  // this session ate +d% of the window
     const t=rt(rl.resets_at); if(t) s+=c("→"+t,"0;90");
     parts.push(s);
   };
-  limit(p?.rate_limits?.five_hour,"5h",18000);    // 5h  = 18000s
-  limit(p?.rate_limits?.seven_day,"7d",604800);   // 7d  = 604800s
+  limit(p?.rate_limits?.five_hour,"5h",18000,burn(p?.rate_limits?.five_hour));  // 5h = 18000s
+  limit(p?.rate_limits?.seven_day,"7d",604800);                                 // 7d = 604800s
 
   process.stdout.write(parts.join(" "+SEP+" "));
 });
