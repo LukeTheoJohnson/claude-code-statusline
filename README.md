@@ -66,7 +66,7 @@ Claude Code runs the command through `bash` (Git Bash / WSL). `~` isn't always e
 
 ## Customising
 
-The whole thing is one script. To change what shows or the order, edit the `parts.push(...)` calls in `statusline-command.sh`. ANSI colour codes are the `"0;3x"` strings passed to `c(...)`.
+To change what shows or the order, edit the `parts.push(...)` calls in `statusline-command.sh`. ANSI colour codes are the `"0;3x"` strings passed to `c(...)`.
 
 ## Licence
 
